@@ -41,12 +41,12 @@ struct WorkoutBuilderView: View {
                     )
                     .padding(.horizontal, 4)
 
-                    Stepper(
-                        "Rest Between Exercises: \(restBetweenExercises)s",
+                    editableValueRow(
+                        title: "REST BETWEEN EXERCISES",
                         value: $restBetweenExercises,
-                        in: Exercise.durationRange
+                        range: Exercise.durationRange,
+                        unitSuffix: "s"
                     )
-                    .padding(.horizontal, 4)
 
                     ForEach(Array(exercises.indices), id: \.self) { index in
                         exerciseCard(index: index)
@@ -93,21 +93,21 @@ struct WorkoutBuilderView: View {
 
             labeledRow("Name", exercises[index].name)
 
-            stepperRow(
+            editableValueRow(
                 title: "WORK",
                 value: $exercises[index].workDuration,
                 range: Exercise.durationRange,
                 unitSuffix: "s"
             )
 
-            stepperRow(
+            editableValueRow(
                 title: "REST",
                 value: $exercises[index].restDuration,
                 range: Exercise.durationRange,
                 unitSuffix: "s"
             )
 
-            stepperRow(
+            editableValueRow(
                 title: "ROUNDS",
                 value: $exercises[index].rounds,
                 range: Exercise.roundsRange
@@ -130,7 +130,8 @@ struct WorkoutBuilderView: View {
         .font(.body)
     }
 
-    private func stepperRow(
+    /// Label above; [ − ] [ editable value ] [ + ]. Value alone looks like an input.
+    private func editableValueRow(
         title: String,
         value: Binding<Int>,
         range: ClosedRange<Int>,
@@ -143,33 +144,57 @@ struct WorkoutBuilderView: View {
             }
         )
 
-        return HStack {
-            Text("\(title):")
-                .font(.body)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .frame(width: 72, alignment: .leading)
 
-            HStack(spacing: 2) {
-                TextField("", value: clamped, format: .number)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .font(.body.monospacedDigit())
-                    .frame(minWidth: 40, alignment: .trailing)
-
-                if !unitSuffix.isEmpty {
-                    Text(unitSuffix)
-                        .font(.body.monospacedDigit())
-                        .foregroundStyle(.primary)
+            HStack(spacing: 12) {
+                Button {
+                    clamped.wrappedValue = max(range.lowerBound, clamped.wrappedValue - 1)
+                } label: {
+                    Image(systemName: "minus")
+                        .frame(width: 36, height: 36)
                 }
+                .buttonStyle(.bordered)
+                .disabled(clamped.wrappedValue <= range.lowerBound)
+                .accessibilityLabel("Decrease \(title)")
+
+                HStack(spacing: 2) {
+                    TextField("", value: clamped, format: .number)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .font(.body.monospacedDigit())
+                        .frame(minWidth: 44)
+
+                    if !unitSuffix.isEmpty {
+                        Text(unitSuffix)
+                            .font(.body.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Color(.tertiarySystemFill))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color(.separator), lineWidth: 1)
+                )
+                .accessibilityLabel("\(title) \(value.wrappedValue)\(unitSuffix)")
+
+                Button {
+                    clamped.wrappedValue = min(range.upperBound, clamped.wrappedValue + 1)
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.bordered)
+                .disabled(clamped.wrappedValue >= range.upperBound)
+                .accessibilityLabel("Increase \(title)")
             }
-
-            Spacer(minLength: 8)
-
-            Stepper(title, value: clamped, in: range)
-                .labelsHidden()
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title) \(value.wrappedValue)\(unitSuffix)")
     }
 
     /// Grow/shrink from the end only. Prefix exercises keep their values and IDs.
