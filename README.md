@@ -1,10 +1,12 @@
 # HIIT Timer
 
-**Version 1.0**
+**Version 1.0 — First usable release**
 
 A personal interval workout timer for iPhone, built with SwiftUI.
 
 Goal: **start fast, few steps, works offline**. Not a social fitness platform.
+
+This is a daily-driver MVP you can use for real workouts — not just a prototype.
 
 ## Features (v1.0)
 
@@ -78,4 +80,6 @@ REST after the final round is **not** included in the estimate.
 
 ## License
 
-Personal learning / portfolio project. A formal license can be added later if needed.
+No formal open-source license yet.
+
+Built as a personal learning / portfolio project for my own use. A license (for example MIT) can be added later if redistribution terms become useful.
