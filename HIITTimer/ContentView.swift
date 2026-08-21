@@ -1,62 +1,87 @@
 import SwiftUI
 
 struct ContentView: View {
+    /// Workout plan snapped when navigating from the builder.
+    let exercises: [Exercise]
+    let restBetweenExercises: Int
+
     @State private var timer = TabataTimer()
-    @State private var showingSettings = false
+    @State private var didAutoStart = false
+
+    init(
+        exercises: [Exercise] = [Exercise.makeDefault(index: 1)],
+        restBetweenExercises: Int = 60
+    ) {
+        self.exercises = exercises
+        self.restBetweenExercises = restBetweenExercises
+    }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 32) {
-                Spacer()
+        VStack(spacing: 32) {
+            Spacer()
 
-                if timer.phase == .completed {
-                    completedSummary
-                } else {
-                    activeTimerContent
-                }
-
-                Spacer()
-
-                HStack(spacing: 16) {
-                    Button("Start") {
-                        timer.start()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!timer.canStart)
-
-                    Button("Pause") {
-                        timer.pause()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!timer.canPause)
-
-                    Button("Reset") {
-                        timer.reset()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .padding(.bottom, 32)
+            if timer.phase == .completed {
+                completedSummary
+            } else {
+                activeTimerContent
             }
-            .padding()
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityLabel("Settings")
+
+            Spacer()
+
+            HStack(spacing: 16) {
+                Button("Start") {
+                    timer.start(
+                        exercises: exercises,
+                        restBetweenExercises: restBetweenExercises
+                    )
                 }
+                .buttonStyle(.borderedProminent)
+                .disabled(!timer.canStart)
+
+                Button("Pause") {
+                    timer.pause()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!timer.canPause)
+
+                Button("Reset") {
+                    timer.reset()
+                }
+                .buttonStyle(.bordered)
             }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView(timer: timer)
-            }
+            .padding(.bottom, 32)
+        }
+        .padding()
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            guard !didAutoStart else { return }
+            didAutoStart = true
+            timer.start(
+                exercises: exercises,
+                restBetweenExercises: restBetweenExercises
+            )
+        }
+        .onDisappear {
+            timer.pause()
         }
     }
 
     private var activeTimerContent: some View {
-        VStack(spacing: 32) {
+        VStack(spacing: 20) {
+            if timer.phase != .interExerciseRest {
+                Text("Exercise \(timer.displayedExerciseNumber) / \(timer.displayedExerciseCount)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Text(timer.currentExerciseName)
+                    .font(.title2.weight(.semibold))
+                    .multilineTextAlignment(.center)
+            } else {
+                Text("Next: Exercise \(timer.displayedExerciseNumber + 1) / \(timer.displayedExerciseCount)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
             Text(timer.phaseTitle)
                 .font(.title.weight(.semibold))
                 .foregroundStyle(phaseColor)
@@ -68,21 +93,10 @@ struct ContentView: View {
                 .contentTransition(.numericText())
                 .accessibilityLabel("\(timer.secondsRemaining) seconds remaining")
 
-            Text("Round \(timer.currentRound) / \(timer.displayedTotalRounds)")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-
-            if timer.phase == .idle {
-                VStack(spacing: 2) {
-                    Text("Estimated Time")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(timer.formattedEstimatedTime)
-                        .font(.subheadline.monospacedDigit().weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Estimated Time \(timer.formattedEstimatedTime)")
+            if timer.phase != .interExerciseRest {
+                Text("Round \(timer.currentRound) / \(timer.displayedTotalRounds)")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -102,6 +116,10 @@ struct ContentView: View {
                 statBlock(title: "Total Time", value: timer.formattedTotalTime)
 
                 Text("\(timer.completedRoundCount) Rounds")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+
+                Text("\(timer.completedExerciseCount) Exercises")
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }
@@ -125,7 +143,7 @@ struct ContentView: View {
         switch timer.phase {
         case .work, .idle:
             return .orange
-        case .rest:
+        case .rest, .interExerciseRest:
             return .blue
         case .completed:
             return .green
@@ -134,5 +152,16 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    NavigationStack {
+        ContentView(exercises: [
+            Exercise.makeDefault(index: 1),
+            Exercise(
+                id: UUID(),
+                name: "Exercise 2",
+                workDuration: 25,
+                restDuration: 15,
+                rounds: 2
+            ),
+        ], restBetweenExercises: 60)
+    }
 }
