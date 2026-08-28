@@ -8,16 +8,17 @@ final class TabataTimer {
         case idle
         case work
         case rest
+        case interExerciseRest
         case completed
     }
 
     static let durationRange = 5...300
     static let roundsRange = 1...99
 
-    /// User-configurable settings (edited while idle).
+    /// Kept for SettingsView / V1.0 single-exercise compatibility.
     var workDuration = 20 {
         didSet {
-            if phase == .idle {
+            if phase == .idle && sessionExercises.isEmpty {
                 secondsRemaining = workDuration
             }
         }
@@ -29,21 +30,21 @@ final class TabataTimer {
     private(set) var phase: Phase = .idle
     private(set) var secondsRemaining = 20
     private(set) var currentRound = 1
+    private(set) var exerciseIndex = 0
     private(set) var isRunning = false
 
     /// Set when entering Completed; cleared on Reset / new workout.
     private(set) var workoutTimeSeconds = 0
     private(set) var totalTimeSeconds = 0
     private(set) var completedRoundCount = 0
+    private(set) var completedExerciseCount = 0
 
-    /// Locked in when a workout begins; ignored settings changes mid-session.
-    private var sessionWorkDuration = 20
-    private var sessionRestDuration = 10
-    private var sessionTotalRounds = 8
+    /// Snapshot of the workout being run (empty while idle after reset).
+    private var sessionExercises: [Exercise] = []
+    private var sessionRestBetweenExercises = 60
 
     private var timer: Timer?
     private let audio = WorkoutAudio()
-    /// Prevents replaying the same countdown second if tick logic is invoked again.
     private var lastCountdownBeepSecond: Int?
 
     var formattedWorkoutTime: String {
@@ -54,18 +55,27 @@ final class TabataTimer {
         Self.formatDuration(totalTimeSeconds)
     }
 
-    /// Planning estimate: all WORK + REST between rounds only (no final REST).
-    var estimatedTotalSeconds: Int {
-        workDuration * totalRounds + restDuration * max(totalRounds - 1, 0)
+    var currentExerciseName: String {
+        guard sessionExercises.indices.contains(exerciseIndex) else {
+            return "Exercise 1"
+        }
+        return sessionExercises[exerciseIndex].name
     }
 
-    var formattedEstimatedTime: String {
-        Self.formatDuration(estimatedTotalSeconds)
+    var displayedExerciseNumber: Int {
+        sessionExercises.isEmpty ? 1 : exerciseIndex + 1
     }
 
-    /// Rounds shown in the UI: session value while active, otherwise the setting.
+    var displayedExerciseCount: Int {
+        max(sessionExercises.count, 1)
+    }
+
+    /// Rounds for the current exercise while a session is active.
     var displayedTotalRounds: Int {
-        phase == .idle ? totalRounds : sessionTotalRounds
+        guard sessionExercises.indices.contains(exerciseIndex) else {
+            return totalRounds
+        }
+        return sessionExercises[exerciseIndex].rounds
     }
 
     var canEditSettings: Bool {
@@ -74,12 +84,12 @@ final class TabataTimer {
 
     var phaseTitle: String {
         switch phase {
-        case .idle:
-            return "WORK"
-        case .work:
+        case .idle, .work:
             return "WORK"
         case .rest:
             return "REST"
+        case .interExerciseRest:
+            return "REST BETWEEN"
         case .completed:
             return "Completed"
         }
@@ -93,25 +103,38 @@ final class TabataTimer {
         isRunning
     }
 
-    func start() {
+    /// Starts a new workout from `exercises`, or resumes if paused mid-session.
+    func start(exercises: [Exercise], restBetweenExercises: Int = 60) {
         guard canStart else { return }
 
         if phase == .idle {
+            guard !exercises.isEmpty else { return }
+
             clearCompletionStats()
-
-            sessionWorkDuration = workDuration
-            sessionRestDuration = restDuration
-            sessionTotalRounds = totalRounds
-
-            phase = .work
+            sessionExercises = exercises
+            sessionRestBetweenExercises = restBetweenExercises
+            exerciseIndex = 0
             currentRound = 1
-            secondsRemaining = sessionWorkDuration
+            phase = .work
+            secondsRemaining = exercises[0].workDuration
             lastCountdownBeepSecond = nil
             audio.playStartVoice()
         }
 
         isRunning = true
         startTicking()
+    }
+
+    /// V1.0-compatible start using the single WORK/REST/ROUNDS settings.
+    func start() {
+        let single = Exercise(
+            id: UUID(),
+            name: "Exercise 1",
+            workDuration: workDuration,
+            restDuration: restDuration,
+            rounds: totalRounds
+        )
+        start(exercises: [single], restBetweenExercises: 0)
     }
 
     func pause() {
@@ -124,7 +147,10 @@ final class TabataTimer {
         stopTicking()
         isRunning = false
         phase = .idle
+        exerciseIndex = 0
         currentRound = 1
+        sessionExercises = []
+        sessionRestBetweenExercises = 60
         secondsRemaining = workDuration
         lastCountdownBeepSecond = nil
         clearCompletionStats()
@@ -133,8 +159,9 @@ final class TabataTimer {
     private func startTicking() {
         stopTicking()
         let scheduled = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                self?.tick()
+                self.tick()
             }
         }
         RunLoop.main.add(scheduled, forMode: .common)
@@ -167,21 +194,37 @@ final class TabataTimer {
 
     private func advancePhase() {
         lastCountdownBeepSecond = nil
+        guard sessionExercises.indices.contains(exerciseIndex) else {
+            complete()
+            return
+        }
+
+        let exercise = sessionExercises[exerciseIndex]
 
         switch phase {
         case .work:
-            phase = .rest
-            secondsRemaining = sessionRestDuration
-            audio.playRestVoice()
-        case .rest:
-            if currentRound >= sessionTotalRounds {
-                complete()
+            if currentRound < exercise.rounds {
+                phase = .rest
+                secondsRemaining = exercise.restDuration
+                audio.playRestVoice()
+            } else if exerciseIndex + 1 < sessionExercises.count {
+                phase = .interExerciseRest
+                secondsRemaining = sessionRestBetweenExercises
+                audio.playRestVoice()
             } else {
-                currentRound += 1
-                phase = .work
-                secondsRemaining = sessionWorkDuration
-                audio.playStartVoice()
+                complete()
             }
+        case .rest:
+            currentRound += 1
+            phase = .work
+            secondsRemaining = exercise.workDuration
+            audio.playStartVoice()
+        case .interExerciseRest:
+            exerciseIndex += 1
+            currentRound = 1
+            phase = .work
+            secondsRemaining = sessionExercises[exerciseIndex].workDuration
+            audio.playStartVoice()
         case .idle, .completed:
             break
         }
@@ -194,9 +237,13 @@ final class TabataTimer {
         secondsRemaining = 0
         lastCountdownBeepSecond = nil
 
-        completedRoundCount = sessionTotalRounds
-        workoutTimeSeconds = sessionWorkDuration * sessionTotalRounds
-        totalTimeSeconds = (sessionWorkDuration + sessionRestDuration) * sessionTotalRounds
+        completedExerciseCount = sessionExercises.count
+        completedRoundCount = sessionExercises.reduce(0) { $0 + $1.rounds }
+        workoutTimeSeconds = sessionExercises.reduce(0) { $0 + $1.workDuration * $1.rounds }
+        totalTimeSeconds = WorkoutEstimate.totalSeconds(
+            for: sessionExercises,
+            restBetweenExercises: sessionRestBetweenExercises
+        )
 
         audio.playCongratulationsVoice()
     }
@@ -205,6 +252,7 @@ final class TabataTimer {
         workoutTimeSeconds = 0
         totalTimeSeconds = 0
         completedRoundCount = 0
+        completedExerciseCount = 0
     }
 
     static func formatDuration(_ totalSeconds: Int) -> String {

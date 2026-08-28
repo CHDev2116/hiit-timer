@@ -4,7 +4,9 @@ import SwiftUI
 struct HIITTimerApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            NavigationStack {
+                ContentView()
+            }
         }
     }
 }

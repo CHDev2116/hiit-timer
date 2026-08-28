@@ -1,88 +1,141 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var library = WorkoutLibrary.load()
     @State private var timer = TabataTimer()
     @State private var showingSettings = false
 
+    private var selectedWorkout: SavedWorkout {
+        library.selectedWorkout
+    }
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 32) {
-                Spacer()
+        VStack(spacing: 32) {
+            Spacer()
 
-                if timer.phase == .completed {
-                    completedSummary
-                } else {
-                    activeTimerContent
-                }
-
-                Spacer()
-
-                HStack(spacing: 16) {
-                    Button("Start") {
-                        timer.start()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!timer.canStart)
-
-                    Button("Pause") {
-                        timer.pause()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!timer.canPause)
-
-                    Button("Reset") {
-                        timer.reset()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .padding(.bottom, 32)
+            if timer.phase == .completed {
+                completedSummary
+            } else {
+                activeTimerContent
             }
-            .padding()
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityLabel("Settings")
+
+            Spacer()
+
+            HStack(spacing: 16) {
+                Button("Start") {
+                    timer.start(
+                        exercises: selectedWorkout.exercises,
+                        restBetweenExercises: selectedWorkout.restBetweenExercises
+                    )
                 }
+                .buttonStyle(.borderedProminent)
+                .disabled(!timer.canStart)
+
+                Button("Pause") {
+                    timer.pause()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!timer.canPause)
+
+                Button("Reset") {
+                    timer.reset()
+                }
+                .buttonStyle(.bordered)
             }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView(timer: timer)
+            .padding(.bottom, 32)
+        }
+        .padding()
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Settings")
             }
+        }
+        .sheet(isPresented: $showingSettings, onDismiss: {
+            library = WorkoutLibrary.load()
+        }) {
+            WorkoutLibraryView(canEdit: timer.canEditSettings)
         }
     }
 
     private var activeTimerContent: some View {
-        VStack(spacing: 32) {
-            Text(timer.phaseTitle)
+        VStack(spacing: 20) {
+            Text(selectedWorkout.name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            if timer.phase == .idle {
+                idlePreviewContent
+            } else if timer.phase != .interExerciseRest {
+                Text("Exercise \(timer.displayedExerciseNumber) / \(timer.displayedExerciseCount)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Text(timer.currentExerciseName)
+                    .font(.title2.weight(.semibold))
+                    .multilineTextAlignment(.center)
+
+                phaseCountdown(
+                    title: timer.phaseTitle,
+                    seconds: timer.secondsRemaining,
+                    roundText: "Round \(timer.currentRound) / \(timer.displayedTotalRounds)"
+                )
+            } else {
+                Text("Next: Exercise \(timer.displayedExerciseNumber + 1) / \(timer.displayedExerciseCount)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                phaseCountdown(
+                    title: timer.phaseTitle,
+                    seconds: timer.secondsRemaining,
+                    roundText: nil
+                )
+            }
+        }
+    }
+
+    private var idlePreviewContent: some View {
+        let first = selectedWorkout.exercises[0]
+        return VStack(spacing: 20) {
+            Text("Exercise 1 / \(selectedWorkout.exercises.count)")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Text(first.name)
+                .font(.title2.weight(.semibold))
+                .multilineTextAlignment(.center)
+
+            phaseCountdown(
+                title: "WORK",
+                seconds: first.workDuration,
+                roundText: "Round 1 / \(first.rounds)"
+            )
+        }
+    }
+
+    private func phaseCountdown(title: String, seconds: Int, roundText: String?) -> some View {
+        VStack(spacing: 20) {
+            Text(title)
                 .font(.title.weight(.semibold))
                 .foregroundStyle(phaseColor)
-                .accessibilityLabel("Phase \(timer.phaseTitle)")
+                .accessibilityLabel("Phase \(title)")
 
-            Text("\(timer.secondsRemaining)")
+            Text("\(seconds)")
                 .font(.system(size: 96, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())
-                .accessibilityLabel("\(timer.secondsRemaining) seconds remaining")
+                .accessibilityLabel("\(seconds) seconds remaining")
 
-            Text("Round \(timer.currentRound) / \(timer.displayedTotalRounds)")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-
-            if timer.phase == .idle {
-                VStack(spacing: 2) {
-                    Text("Estimated Time")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(timer.formattedEstimatedTime)
-                        .font(.subheadline.monospacedDigit().weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Estimated Time \(timer.formattedEstimatedTime)")
+            if let roundText {
+                Text(roundText)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -102,6 +155,10 @@ struct ContentView: View {
                 statBlock(title: "Total Time", value: timer.formattedTotalTime)
 
                 Text("\(timer.completedRoundCount) Rounds")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+
+                Text("\(timer.completedExerciseCount) Exercises")
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }
@@ -125,7 +182,7 @@ struct ContentView: View {
         switch timer.phase {
         case .work, .idle:
             return .orange
-        case .rest:
+        case .rest, .interExerciseRest:
             return .blue
         case .completed:
             return .green
@@ -134,5 +191,7 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    NavigationStack {
+        ContentView()
+    }
 }
