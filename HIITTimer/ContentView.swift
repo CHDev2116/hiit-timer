@@ -2,11 +2,18 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var library = WorkoutLibrary.load()
+    @State private var userProfile = UserProfile.load()
     @State private var timer = TabataTimer()
     @State private var showingSettings = false
+    @State private var selectedWorkoutIDWhenSettingsOpened: UUID?
 
     private var selectedWorkout: SavedWorkout {
         library.selectedWorkout
+    }
+
+    /// Library editing is blocked during an active session, but allowed when idle or after completion.
+    private var canEditWorkoutLibrary: Bool {
+        timer.canEditSettings || timer.phase == .completed
     }
 
     var body: some View {
@@ -49,6 +56,7 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    selectedWorkoutIDWhenSettingsOpened = library.selectedWorkout.id
                     showingSettings = true
                 } label: {
                     Image(systemName: "gearshape")
@@ -58,8 +66,14 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingSettings, onDismiss: {
             library = WorkoutLibrary.load()
+            userProfile = UserProfile.load()
+            if timer.phase == .completed,
+               let previousID = selectedWorkoutIDWhenSettingsOpened,
+               library.selectedWorkout.id != previousID {
+                timer.reset()
+            }
         }) {
-            WorkoutLibraryView(canEdit: timer.canEditSettings)
+            WorkoutLibraryView(canEdit: canEditWorkoutLibrary)
         }
     }
 
@@ -150,6 +164,10 @@ struct ContentView: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
 
+            Text(selectedWorkout.name)
+                .font(.title3.weight(.semibold))
+                .multilineTextAlignment(.center)
+
             VStack(spacing: 16) {
                 statBlock(title: "Workout Time", value: timer.formattedWorkoutTime)
                 statBlock(title: "Total Time", value: timer.formattedTotalTime)
@@ -161,10 +179,32 @@ struct ContentView: View {
                 Text("\(timer.completedExerciseCount) Exercises")
                     .font(.title3)
                     .foregroundStyle(.secondary)
+
+                calorieSummarySection
             }
             .padding(.top, 8)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var calorieSummarySection: some View {
+        if let kcal = CalorieEstimate.estimatedKcal(
+            weightKg: userProfile.weightKg,
+            workoutTimeSeconds: timer.workoutTimeSeconds,
+            totalTimeSeconds: timer.totalTimeSeconds
+        ) {
+            statBlock(
+                title: "Estimated Calories",
+                value: CalorieEstimate.formattedEstimate(kcal: kcal)
+            )
+        } else {
+            Text("Add your weight in Settings to estimate calories.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 4)
+        }
     }
 
     private func statBlock(title: String, value: String) -> some View {
