@@ -8,6 +8,7 @@ struct WorkoutLibraryView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var library = WorkoutLibrary.load()
+    @State private var userProfile = UserProfile.load()
     @State private var editorRoute: EditorRoute?
     @State private var workoutPendingDeletion: SavedWorkout?
 
@@ -26,24 +27,22 @@ struct WorkoutLibraryView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if canEdit {
+                if library.workouts.isEmpty {
+                    emptyLibraryState
+                } else if canEdit {
                     libraryList
                 } else {
-                    VStack(spacing: 16) {
-                        Text("Reset the workout to change settings.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.top, 24)
-
+                    VStack(spacing: 0) {
+                        lockedBanner
                         libraryList
                             .disabled(true)
                             .opacity(0.45)
                     }
                 }
             }
-            .navigationTitle("Workout Library")
-            .navigationBarTitleDisplayMode(.inline)
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Workouts")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
@@ -86,11 +85,67 @@ struct WorkoutLibraryView: View {
         return "Delete Workout?"
     }
 
+    private var lockedBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "lock.fill")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("Reset the workout to change settings.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(.secondarySystemGroupedBackground))
+    }
+
+    private var emptyLibraryState: some View {
+        ContentUnavailableView {
+            Label("No Workouts", systemImage: "figure.run")
+        } description: {
+            Text("Create a workout to configure exercises and use it with the timer.")
+        } actions: {
+            Button("New Workout") {
+                editorRoute = .create
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!canEdit)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var libraryList: some View {
         List {
+            if !canEdit {
+                Section {
+                    lockedBanner
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+            }
+
+            Section {
+                NavigationLink {
+                    PersonalProfileView(profile: $userProfile)
+                } label: {
+                    HStack {
+                        Text("Calorie Estimate")
+                        Spacer()
+                        if let weightKg = userProfile.weightKg {
+                            Text("\(Self.formatWeight(weightKg)) kg")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
             Section {
                 ForEach(library.workouts) { workout in
                     workoutRow(workout)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button("Delete", role: .destructive) {
                                 workoutPendingDeletion = workout
@@ -98,30 +153,80 @@ struct WorkoutLibraryView: View {
                             .disabled(!canEdit)
                         }
                 }
+            } header: {
+                librarySectionHeader
             } footer: {
-                Text("Tap a workout to select it for the timer. Use Edit to change its configuration. Swipe left to delete.")
+                Text("Tap a workout to use it with the timer. Swipe left to delete.")
+                    .font(.footnote)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .onAppear {
+            userProfile = UserProfile.load()
+        }
+    }
+
+    private static func formatWeight(_ weight: Double) -> String {
+        weight.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", weight)
+            : String(format: "%.1f", weight)
+    }
+
+    private var librarySectionHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Saved Workouts")
+            if let selected = library.workouts.first(where: { $0.id == library.selectedWorkoutID }) {
+                Text("Timer uses \"\(selected.name)\"")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(nil)
             }
         }
     }
 
     private func workoutRow(_ workout: SavedWorkout) -> some View {
-        HStack(spacing: 12) {
+        let isSelected = workout.id == library.selectedWorkoutID
+
+        return HStack(alignment: .center, spacing: 12) {
             Button {
                 selectWorkout(workout)
             } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(workout.name)
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(.primary)
-                        Text("\(workout.exercises.count) exercises")
-                            .font(.caption)
+                HStack(alignment: .center, spacing: 12) {
+                    workoutIcon(isSelected: isSelected)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(workout.name)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+
+                            if isSelected {
+                                Text("Active")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(Color.accentColor)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.accentColor.opacity(0.12))
+                                    .clipShape(Capsule())
+                            }
+                        }
+
+                        Text(workoutSummary(for: workout))
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    Spacer(minLength: 8)
-                    if workout.id == library.selectedWorkoutID {
+
+                    Spacer(minLength: 0)
+
+                    if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.tint)
+                            .font(.title3)
+                            .foregroundStyle(Color.accentColor)
+                            .accessibilityHidden(true)
                     }
                 }
                 .contentShape(Rectangle())
@@ -132,9 +237,52 @@ struct WorkoutLibraryView: View {
                 editorRoute = .edit(workout.id)
             }
             .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(!canEdit)
         }
-        .padding(.vertical, 4)
+        .padding(14)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1.5)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(workoutAccessibilityLabel(for: workout, isSelected: isSelected))
+        .accessibilityHint("Double tap to select for the timer.")
+    }
+
+    private func workoutIcon(isSelected: Bool) -> some View {
+        ZStack {
+            Circle()
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(.tertiarySystemFill))
+                .frame(width: 44, height: 44)
+
+            Image(systemName: "figure.run")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func workoutSummary(for workout: SavedWorkout) -> String {
+        let exerciseLabel = workout.exercises.count == 1 ? "1 exercise" : "\(workout.exercises.count) exercises"
+        let duration = WorkoutEstimate.formatDuration(
+            WorkoutEstimate.totalSeconds(
+                for: workout.exercises,
+                restBetweenExercises: workout.restBetweenExercises
+            )
+        )
+        return "\(exerciseLabel) · \(duration)"
+    }
+
+    private func workoutAccessibilityLabel(for workout: SavedWorkout, isSelected: Bool) -> String {
+        let selection = isSelected ? "Selected for timer. " : ""
+        return "\(selection)\(workout.name). \(workoutSummary(for: workout))."
     }
 
     @ViewBuilder
