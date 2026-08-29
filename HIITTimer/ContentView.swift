@@ -6,6 +6,9 @@ struct ContentView: View {
     @State private var timer = TabataTimer()
     @State private var showingSettings = false
     @State private var selectedWorkoutIDWhenSettingsOpened: UUID?
+    @State private var sessionWorkoutName: String?
+    @State private var sessionSavedWorkoutID: UUID?
+    @State private var didRecordCurrentCompletion = false
 
     private var selectedWorkout: SavedWorkout {
         library.selectedWorkout
@@ -30,6 +33,8 @@ struct ContentView: View {
 
             HStack(spacing: 16) {
                 Button("Start") {
+                    sessionWorkoutName = selectedWorkout.name
+                    sessionSavedWorkoutID = selectedWorkout.id
                     timer.start(
                         exercises: selectedWorkout.exercises,
                         restBetweenExercises: selectedWorkout.restBetweenExercises
@@ -75,6 +80,44 @@ struct ContentView: View {
         }) {
             WorkoutLibraryView(canEdit: canEditWorkoutLibrary)
         }
+        .onChange(of: timer.phase) { _, newPhase in
+            switch newPhase {
+            case .completed:
+                if !didRecordCurrentCompletion {
+                    recordCompletedWorkout()
+                    didRecordCurrentCompletion = true
+                }
+            case .idle:
+                didRecordCurrentCompletion = false
+                sessionWorkoutName = nil
+                sessionSavedWorkoutID = nil
+            default:
+                break
+            }
+        }
+    }
+
+    private func recordCompletedWorkout() {
+        let name = sessionWorkoutName ?? selectedWorkout.name
+        let record = WorkoutSessionRecord(
+            id: UUID(),
+            completedAt: Date(),
+            workoutName: name,
+            savedWorkoutID: sessionSavedWorkoutID,
+            workoutTimeSeconds: timer.workoutTimeSeconds,
+            totalTimeSeconds: timer.totalTimeSeconds,
+            completedRoundCount: timer.completedRoundCount,
+            completedExerciseCount: timer.completedExerciseCount,
+            estimatedKcal: CalorieEstimate.estimatedKcal(
+                weightKg: userProfile.weightKg,
+                workoutTimeSeconds: timer.workoutTimeSeconds,
+                totalTimeSeconds: timer.totalTimeSeconds
+            )
+        )
+
+        var history = WorkoutHistory.load()
+        history.append(record)
+        history.save()
     }
 
     private var activeTimerContent: some View {
